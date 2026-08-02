@@ -20,7 +20,7 @@ CollisionHitList TraceTester::Trace(const vec3& from, const vec3& to, float heig
 		return {};
 	direction *= 1.0f / tmax;
 
-	float margin = 1.0f;
+	float margin = CollisionSweepMargin;
 	tmax += margin;
 
 	CollisionHitList hits;
@@ -30,10 +30,14 @@ CollisionHitList TraceTester::Trace(const vec3& from, const vec3& to, float heig
 	vec3 extents = { radius, radius, height };
 
 	int checkCounter = NextCheckCounter();
-	ivec3 start = GetSweepStartExtents(from, to, extents);
-	ivec3 end = GetSweepEndExtents(from, to, extents);
-	if (end.x - start.x < 100 && end.y - start.y < 100 && end.z - start.z < 100)
+
+	auto gatherActors = [&](const vec3& segmentFrom, const vec3& segmentTo)
 	{
+		ivec3 start = GetSweepStartExtents(segmentFrom, segmentTo, extents);
+		ivec3 end = GetSweepEndExtents(segmentFrom, segmentTo, extents);
+		if (end.x - start.x >= 100 || end.y - start.y >= 100 || end.z - start.z >= 100)
+			return;
+
 		for (int z = start.z; z < end.z; z++)
 		{
 			for (int y = start.y; y < end.y; y++)
@@ -51,6 +55,18 @@ CollisionHitList TraceTester::Trace(const vec3& from, const vec3& to, float heig
 				}
 			}
 		}
+	};
+
+	// The cell range a long trace covers exceeds what one pass is willing to walk, and the
+	// range is a box around the whole segment rather than the cells the segment actually
+	// crosses. Splitting it keeps every pass inside that budget: a sniper rifle traces its
+	// full 24000 unit range, which used to skip actor testing outright and put every shot
+	// through whoever it was aimed at.
+	const float segmentLength = 1024.0f;
+	const int segments = std::max(1, (int)std::ceil((float)tmax / segmentLength));
+	for (int i = 0; i < segments; i++)
+	{
+		gatherActors(from + (to - from) * ((float)i / segments), from + (to - from) * ((float)(i + 1) / segments));
 	}
 
 	if (traceWorld)
@@ -115,16 +131,19 @@ bool TraceTester::TraceAnyHit(vec3 from, vec3 to, UActor* tracingActor, bool tra
 		return false;
 	direction *= 1.0f / tmax;
 
-	float margin = 1.0f;
+	float margin = CollisionSweepMargin;
 	tmax += margin;
 
-	CollisionHitList hits;
-
 	int checkCounter = NextCheckCounter();
-	ivec3 start = GetRayStartExtents(from, to);
-	ivec3 end = GetRayEndExtents(from, to);
-	if (end.x - start.x < 100 && end.y - start.y < 100 && end.z - start.z < 100)
+
+	auto gatherAnyHit = [&](const vec3& segmentFrom, const vec3& segmentTo) -> bool
 	{
+		ivec3 start = GetRayStartExtents(segmentFrom, segmentTo);
+		ivec3 end = GetRayEndExtents(segmentFrom, segmentTo);
+		if (end.x - start.x >= 100 || end.y - start.y >= 100 || end.z - start.z >= 100)
+			return false;
+
+		CollisionHitList hits;
 		for (int z = start.z; z < end.z; z++)
 		{
 			for (int y = start.y; y < end.y; y++)
@@ -147,6 +166,17 @@ bool TraceTester::TraceAnyHit(vec3 from, vec3 to, UActor* tracingActor, bool tra
 				}
 			}
 		}
+		return false;
+	};
+
+	// Same cell budget as Trace(): one pass over the box around the whole ray gives up entirely
+	// once the span exceeds it, so split the ray into sub-segments that each stay inside it.
+	const float segmentLength = 1024.0f;
+	const int segments = std::max(1, (int)std::ceil((float)tmax / segmentLength));
+	for (int i = 0; i < segments; i++)
+	{
+		if (gatherAnyHit(from + (to - from) * ((float)i / segments), from + (to - from) * ((float)(i + 1) / segments)))
+			return true;
 	}
 
 	if (traceWorld)

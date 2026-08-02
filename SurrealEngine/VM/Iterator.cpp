@@ -173,27 +173,32 @@ bool ChildActorsIterator::Next()
 }
 
 /////////////////////////////////////////////////////////////////////////////
-CycleActorsIterator::CycleActorsIterator(UObject* BaseClass, UObject** Actor, int* outIndex)  : BaseClass(BaseClass), Actor(Actor), outIndex(outIndex)  
-{  
-	for (UActor* levelActor : engine->Level->Actors)  
-	{  
-		if (levelActor && levelActor->IsA(BaseClass->Name))  
-			matchedActors.push_back(levelActor); 
-	}  
-	totalActors = matchedActors.size();  
-}  
+CycleActorsIterator::CycleActorsIterator(UObject* BaseClass, UObject** Actor, int* outIndex)  : BaseClass(BaseClass), Actor(Actor), outIndex(outIndex)
+{
+	for (UActor* levelActor : engine->Level->Actors)
+	{
+		if (levelActor && levelActor->IsA(BaseClass->Name))
+			matchedActors.push_back(levelActor);
+	}
 
-bool CycleActorsIterator::Next()  
-{  
-	if (matchedActors.empty()) return false;  
-	if (currentIndex >= matchedActors.size())  
-	{  
-		return false;  
-	}  
-	*Actor = matchedActors[currentIndex];  
-	if (outIndex) *outIndex = static_cast<int>(currentIndex);  
-	++currentIndex;  
-	return true;  
+	// The index is in/out: iteration resumes where the previous foreach left off
+	// and wraps around. ScriptedPawn::CheckEnemyPresence breaks out of the loop
+	// after one candidate and detects a completed sweep by the index wrapping, so
+	// restarting from zero every time would pin it to the same few actors.
+	if (outIndex && *outIndex > 0 && !matchedActors.empty())
+		currentIndex = static_cast<size_t>(*outIndex) % matchedActors.size();
+}
+
+bool CycleActorsIterator::Next()
+{
+	if (matchedActors.empty() || visited >= matchedActors.size())
+		return false;
+
+	*Actor = matchedActors[currentIndex];
+	++visited;
+	currentIndex = (currentIndex + 1) % matchedActors.size();
+	if (outIndex) *outIndex = static_cast<int>(currentIndex);
+	return true;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -298,18 +303,24 @@ TraceActorsIterator::TraceActorsIterator(UActor* SelfActor, UObject* BaseClass, 
 	flags.others = true;
 	flags.onlyProjectiles = false; // Should this be true or false?
 
-	// Why is this tracing backwards? Is that correct?
-	vec3 traceStart = End;
-	vec3 traceEnd = Start;
-
-	for (auto& hit : SelfActor->XLevel()->Collision.Trace(traceStart, traceEnd, Extent.z, Extent.x, flags.traceActors(), flags.traceWorld(), false))
+	for (auto& hit : SelfActor->XLevel()->Collision.Trace(Start, End, Extent.z, Extent.x, flags.traceActors(), flags.traceWorld(), false))
 	{
-		if (hit.Actor && hit.Actor != SelfActor && hit.Actor->IsA(BaseClass->Name))
+		// World geometry arrives with no actor. Script sees it as the Level actor and tests for
+		// exactly that: ScriptedPawn.AISafeToShoot refuses to fire through a wall by comparing
+		// the traced actor against Level.
+		UActor* hitActor = hit.Actor ? hit.Actor : SelfActor->Level();
+
+		if (hitActor != SelfActor && hitActor->IsA(BaseClass->Name))
 		{
 			vec3 hitNormal = hit.Normal;
-			vec3 hitLocation = traceStart + (traceEnd - traceStart) * hit.Fraction;
-			tracedActors.push_back({ hit.Actor, *HitLoc, *HitNorm });
+			vec3 hitLocation = Start + (End - Start) * hit.Fraction;
+			tracedActors.push_back({ hitActor, hitLocation, hitNormal });
 		}
+
+		// The wall ends the trace. Anything behind it is not reported, whether or not the
+		// Level itself passed the class filter.
+		if (!hit.Actor)
+			break;
 	}
 
 	iterator = tracedActors.begin();

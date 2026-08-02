@@ -121,7 +121,7 @@ private:
 	UObject** Actor = nullptr;
 	int* outIndex = nullptr;
 	size_t currentIndex = 0;
-	size_t totalActors = 0;
+	size_t visited = 0;
 	Array<UActor*> matchedActors;
 };
 

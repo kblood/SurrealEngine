@@ -22,6 +22,10 @@ struct TraceFlags
 	bool traceWorld() const { return world; }
 };
 
+// Sweeps stop this far short of what they hit, so a blocked actor comes to rest
+// with this much clearance rather than touching.
+static constexpr float CollisionSweepMargin = 1.0f;
+
 class CollisionSystem
 {
 public:
