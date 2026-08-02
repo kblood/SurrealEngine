@@ -28,6 +28,15 @@ float ComputeDXAIHearing(float volume, float radius, float hearingThreshold, flo
 	return std::clamp((1.0f - distance / radius) * volume - hearingThreshold, 0.0f, 1.0f);
 }
 
+float ComputeDXAILightLevel(float lightmapLevel) noexcept
+{
+	const float floorLevel = 0.004255f;
+	const float lightmapToAILevel = 0.4f;
+	if (!IsFinite(lightmapLevel) || lightmapLevel <= 0.0f)
+		return floorLevel;
+	return std::clamp(lightmapLevel * lightmapToAILevel, floorLevel, 1.0f);
+}
+
 float ComputeDXAISight(float visibility, float lightVisibility, float collisionRadius, float collisionHeight, float distanceSquared, float minAngularSize, float visibilityThreshold) noexcept
 {
 	if (!IsFinite(visibility) || !IsFinite(lightVisibility) || !IsFinite(collisionRadius) ||

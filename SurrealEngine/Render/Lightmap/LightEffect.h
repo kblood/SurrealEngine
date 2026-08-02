@@ -5,6 +5,15 @@
 
 class UActor;
 
+// Brightness of a light at a point, as a fraction of the distance to its radius.
+inline float LightDistanceFalloff(float distsqr)
+{
+	float v = std::sqrt(distsqr + 0.0001f);
+	float v2 = v * v;
+	float v3 = v2 * v;
+	return std::min((1.0f + 2.0f * v3 - 3.0f * v2) / v, 1.0f);
+}
+
 class LightEffect
 {
 public:

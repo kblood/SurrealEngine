@@ -6,6 +6,11 @@
 // or world-state dependency; the LOS adapter accepts an injected trace callback
 // so native runtime code and data-free tests share the exact short-circuit order.
 float ComputeDXAIHearing(float volume, float radius, float hearingThreshold, float deltaX, float deltaY, float deltaZ) noexcept;
+// Converts the renderer's lightmap value at a spot into the light level Deus Ex
+// reports there. Measured against retail over a level's worth of NPC positions,
+// its scale is a constant fraction of the lightmap's and it never falls below a
+// floor even where no light reaches.
+float ComputeDXAILightLevel(float lightmapLevel) noexcept;
 float ComputeDXAISight(float visibility, float lightVisibility, float collisionRadius, float collisionHeight, float distanceSquared, float minAngularSize, float visibilityThreshold) noexcept;
 bool PassesDXAISightDirection(float forward, float side, float up,
 	float collisionRadius, float collisionHeight, float distanceSquared,

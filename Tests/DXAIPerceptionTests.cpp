@@ -55,6 +55,16 @@ static void TestSight()
 	Check(ComputeDXAISight(1.0f, std::numeric_limits<float>::infinity(), 20.0f, 40.0f, 1.0f, 0.0f, 0.0f) == 0.0f, "infinite sight input fails closed");
 }
 
+static void TestLightLevel()
+{
+	Check(Close(ComputeDXAILightLevel(0.25f), 0.1f), "lightmap value scales to the AI light level");
+	Check(Close(ComputeDXAILightLevel(0.0f), 0.004255f), "an unlit spot reports the floor");
+	Check(Close(ComputeDXAILightLevel(0.001f), 0.004255f), "a nearly unlit spot cannot fall below the floor");
+	Check(ComputeDXAILightLevel(10.0f) == 1.0f, "the light level clamps to one");
+	Check(Close(ComputeDXAILightLevel(std::numeric_limits<float>::quiet_NaN()), 0.004255f), "NaN reports the floor");
+	CheckUnitResult(ComputeDXAILightLevel(0.5f), "lit light level");
+}
+
 static void TestSightDirection()
 {
 	Check(PassesDXAISightDirection(100.0f, 0.0f, 0.0f, 1.0f, 2.0f,
@@ -161,6 +171,7 @@ int main()
 {
 	TestHearing();
 	TestSight();
+	TestLightLevel();
 	TestSightDirection();
 	TestSightLineOfSight();
 	TestMotionVisibility();

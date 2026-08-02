@@ -5,14 +5,6 @@
 #include "Packages/Engine/Actors/UActor.h"
 #include "Math/coords.h"
 
-static float LightDistanceFalloff(float distsqr)
-{
-	float v = std::sqrt(distsqr + 0.0001f);
-	float v2 = v * v;
-	float v3 = v2 * v;
-	return std::min((1.0f + 2.0f * v3 - 3.0f * v2) / v, 1.0f);
-}
-
 void LightEffect::Run(UActor* light, int width, int height, const vec3* locations, vec3 base, vec3 N, const float* shadowmap, float* result)
 {
 	int size = width * height;

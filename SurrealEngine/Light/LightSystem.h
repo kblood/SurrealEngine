@@ -14,6 +14,11 @@ class LightSystem
 public:
 	void UpdateLightList(UActor* actor);
 
+	// How brightly the level's lights illuminate a world point, 0..1. Deus Ex's AI
+	// scales its sight term by this, so it needs a real value rather than the light
+	// list built for rendering a particular actor.
+	float SampleLightLevel(const vec3& location, UActor* tracingActor);
+
 	void SetLevel(ULevel* level);
 	void AddLight(UActor* light);
 	void RemoveLight(UActor* light);
