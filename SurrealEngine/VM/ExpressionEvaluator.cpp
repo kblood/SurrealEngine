@@ -595,7 +595,7 @@ void ExpressionEvaluator::Expr(IntToStringExpression* expr)
 
 void ExpressionEvaluator::Expr(BoolToStringExpression* expr)
 {
-	Result.Value = ExpressionValue::StringValue(std::to_string(Eval(expr->Value).Value.ToBool()));
+	Result.Value = ExpressionValue::StringValue(Eval(expr->Value).Value.ToBool() ? "True" : "False");
 }
 
 void ExpressionEvaluator::Expr(FloatToStringExpression* expr)
@@ -731,6 +731,7 @@ void ExpressionEvaluator::Call(UFunction* func, const Array<Expression*>& exprAr
 		args.reserve(exprArgs.size());
 		for (Expression* arg : exprArgs)
 			args.push_back(Eval(arg, Self, Self, LocalVariables).Value);
+
 		Result.Value = Frame::Call(func, Context, std::move(args));
 	}
 }

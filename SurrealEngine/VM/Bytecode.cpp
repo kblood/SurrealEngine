@@ -16,7 +16,7 @@ Bytecode::Bytecode(const Array<uint8_t>& bytecode, Package* package)
 
 Expression* Bytecode::ReadToken(BytecodeStream* stream, int depth)
 {
-	if (depth == 64)
+	if (depth == MaxBytecodeNesting)
 		Exception::Throw("Bytecode parsing error");
 	depth++;
 

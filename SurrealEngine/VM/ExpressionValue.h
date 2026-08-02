@@ -417,6 +417,12 @@ inline void ExpressionValue::Store(const ExpressionValue& rvalue)
 	case ExpressionValueType::ValueName: *PtrName = rvalue.ToName(); break;
 	case ExpressionValueType::ValueColor: *PtrColor = rvalue.ToColor(); break;
 	case ExpressionValueType::ValueStruct:
+		// An omitted optional parameter arrives as Nothing with a null pointer.
+		// Leave the destination as the frame constructed it, the same way the
+		// scalar conversions above turn Nothing into a zero rather than reading
+		// through the pointer.
+		if (rvalue.Type == ExpressionValueType::Nothing)
+			break;
 		if (UStruct* Struct = VariableProperty ? static_cast<UStructProperty*>(VariableProperty)->Struct : GetStructValue()->Struct)
 		{
 			for (UProperty* prop : Struct->Properties)
@@ -426,6 +432,8 @@ inline void ExpressionValue::Store(const ExpressionValue& rvalue)
 		}
 		break;
 	case ExpressionValueType::ValueArray:
+		if (rvalue.Type == ExpressionValueType::Nothing)
+			break;
 		if (UArrayProperty* Array = VariableProperty ? static_cast<UArrayProperty*>(VariableProperty) : GetArrayValue()->Type)
 		{
 			Array->CopyArray(Ptr, rvalue.Ptr);
